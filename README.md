@@ -1,8 +1,8 @@
-📚 AI-Powered Collaborative Knowledge Hub
+ AI-Powered Collaborative Knowledge Hub
 
 A full-stack (MERN + Gemini) app where teams can upload, manage, and search knowledge documents. Gemini AI generates summaries, tags, and enables semantic search & Q&A over team docs.
 
-🚀 Features
+<h2> Features </h2>
 
 Authentication & Roles
 
@@ -44,19 +44,8 @@ Semantic Search: Embedding-based retrieval.
 
 Tag Filtering: Chip-style multiple tag selection.
 
-Collaboration Features (Optional Enhancements)
 
-Team Activity Feed: See last 5 edits and who edited them.
-
-Version History: View previous document versions with timestamps.
-
-Chat Optimizations
-
-In-memory caching of chat sessions for quick response (5–10 min).
-
-Falls back to DB for persistence if needed.
-
-🏗️ Tech Stack
+<h2>Tech Stack </h2> 
 
 Frontend: React + TailwindCSS
 
@@ -66,7 +55,7 @@ Database: MongoDB (metadata)
 
 Vector DB: Qdrant (semantic search)
 
-AI Models:
+<h2>AI Models:</h2> 
 
 gemini-1.5-pro-latest → summarization & Q&A
 
@@ -76,7 +65,7 @@ Storage: AWS S3 (PDFs)
 
 Auth: JWT-based
 
-⚙️ Setup Instructions
+<h2> Setup Instructions</h2>
 
 Clone repo
 
