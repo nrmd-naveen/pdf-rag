@@ -1,4 +1,4 @@
- AI-Powered Collaborative Knowledge Hub
+<h1> AI-Powered Collaborative Knowledge Hub</h1>
 
 A full-stack (MERN + Gemini) app where teams can upload, manage, and search knowledge documents. Gemini AI generates summaries, tags, and enables semantic search & Q&A over team docs.
 
