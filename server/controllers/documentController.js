@@ -23,7 +23,19 @@ const qdrant = new QdrantClient({
   url: process.env.QDRANT_URL,
   apiKey: process.env.QDRANT_API_KEY,
 });
-const COLLECTION_NAME = 'pdf-store';
+
+await qdrant.createPayloadIndex('pdf-embeddings', {
+  field_name: 'userId',
+  field_schema: 'keyword', // or "string" depending on your use
+});
+
+await qdrant.createPayloadIndex('pdf-embeddings', {
+  field_name: 'docId',
+  field_schema: 'keyword',
+});
+
+// const COLLECTION_NAME = 'pdf-store';
+const COLLECTION_NAME = 'pdf-embeddings';
 
 const chatHistoryCache = new Map(); // Optional, not used in current code
 
@@ -70,10 +82,10 @@ export const createDocument = async (req, res) => {
       model.generateContent(`Summarize in 2-3 sentences:\n\n${textContent.substring(0, 4000)}`),
       model.generateContent(`Generate 3-5 relevant tags, separated by commas:\n\n${textContent.substring(0, 2000)}`),
     ]);
-
+    
     const summary = summaryResult.response.text();
     const tags = tagsResult.response.text().split(',').map(tag => tag.trim());
-
+    
     // 4. Save metadata
     const document = new Document({
       title,
@@ -83,9 +95,13 @@ export const createDocument = async (req, res) => {
       createdBy: req.user._id,
     });
     await document.save();
+    
+    // 6. Handle Thumbnail Generation Async
+    generateThumbnail(s3Path, document._id);
 
     // 5. Process embeddings async
     processAndStoreEmbeddings(document._id, req.user._id, textContent);
+
 
     res.status(201).json(document);
   } catch (error) {
@@ -149,17 +165,42 @@ export const semanticSearch = async (req, res) => {
 
 
 export const deleteDocument = async (req, res) => {
-  const doc = await Document.findById(req.params.id);
+  try {
+    const doc = await Document.findById(req.params.id);
 
-  if (!doc) return res.status(404).json({ message: 'Document not found' });
+    if (!doc) return res.status(404).json({ message: 'Document not found' });
 
-  if (doc.createdBy.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
-    return res.status(403).json({ message: 'User not authorized to delete this document' });
+    if (doc.createdBy.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'User not authorized to delete this document' });
+    }
+
+    // Delete associated chat history
+    await ChatHistory.deleteMany({ document: req.params.id });
+
+    // Delete embeddings from Qdrant using a filter
+    await qdrant.delete(COLLECTION_NAME, {
+      filter: {
+        must: [
+          {
+            key: 'docId',
+            match: {
+              value: req.params.id.toString(), // ensure string type match
+            },
+          },
+        ],
+      },
+      wait: true, // optional, wait for operation to finish
+    });
+
+    // Optionally: delete document from S3 here if needed
+
+    await doc.deleteOne();
+
+    res.json({ message: 'Document and related data removed' });
+  } catch (error) {
+    console.error('❌ Error deleting document:', error);
+    res.status(500).json({ message: 'Server error while deleting document' });
   }
-  
-  await doc.deleteOne();
-  // Optionally: delete from S3 and Qdrant
-  res.json({ message: 'Document removed' });
 };
 
 export const chatWithDocument = async (req, res) => {
@@ -295,6 +336,37 @@ async function processAndStoreEmbeddings(docId, userId, text) {
   }
 }
 
+export const generateThumbnail = async (s3Path, docId) => {
+  const pdfUrl = `https://nrmd-pdf-store.s3.amazonaws.com/${s3Path}`;
+  try {
+    const thumbGenEndpoint = 'https://ba4hcgqlga.execute-api.ap-south-1.amazonaws.com/stage-1/generatePdfThumbnail';
+    const response = await fetch(thumbGenEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ pdfUrl }),
+    });
+    console.log("response ----------", response);
+    const data = await response.json();
+    const thumbnailUrl = data.thumbnailUrl;
+    console.log("thumbnailUrl ----------", thumbnailUrl);
+    // return thumbnailUrl;
+    await Document.updateOne({ _id: docId }, { $set: { thumbnailUrl } });
+  } catch (error) {
+    console.error(`❌ Thumbnail generation failed for doc ${docId}:`, error);
+  }
+}
+
+export const getThumbnailUrl = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const doc = await Document.findById(id);
+    res.json({ thumbnailUrl: doc?.thumbnailUrl });
+  } catch (error) {
+    console.error(`❌ Thumbnail generation failed for doc ${id}:`, error);
+  }
+}
 
 export const getChatHistories = async (req, res) => {
   try {

@@ -7,7 +7,8 @@ const PdfPreviewModal = ({ doc, onClose }) => {
   // from your backend using doc.s3Path or doc._id and display it in an iframe.
   // For now, we'll show a placeholder.
   const pdfUrl = `/api/documents/view/${doc._id}`; // Example URL
-
+  const s3Url = doc.s3Path.replace(" ", '%20');
+  console.log("s3 URL", `https://nrmd-pdf-store.s3.amazonaws.com/${s3Url}`);
   return (
     <div
       className="fixed inset-0 bg-black/80 bg-opacity-70 z-50 flex justify-center items-center"

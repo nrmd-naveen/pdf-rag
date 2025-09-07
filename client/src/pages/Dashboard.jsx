@@ -76,11 +76,18 @@ const Dashboard = () => {
 
       // 2. Upload to S3
       await axios.put(url, file, { headers: { 'Content-Type': 'application/pdf' } });
-
+      
       // 3. Create document record in backend
-      await axios.post(`${BASE_URL}/api/documents`, { title: file.name.replace('.pdf', ''), s3Path: key }, config);
+      const { data: document } = await axios.post(
+        `${BASE_URL}/api/documents`,
+        { title: file.name.replace('.pdf', ''), s3Path: key },
+        config
+      );
 
-      // Refresh documents
+      // 4. Start polling in the background (don't await it)
+      pollForThumbnail(document._id, config);
+
+      // 5. Refresh documents list immediately
       await fetchDocuments();
     } catch (err) {
       setError('File upload failed. Please try again.');
@@ -89,6 +96,35 @@ const Dashboard = () => {
       setIsUploading(false);
     }
   };
+
+
+  const pollForThumbnail = async (documentId, config, maxAttempts = 30, interval = 1000) => {
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+      try {
+        const { data } = await axios.get(`${BASE_URL}/api/documents/poll-thumbnail/${documentId}`, config);
+
+        if (data.thumbnailUrl) {
+          setDocuments(prevDocs => 
+            prevDocs.map(doc => doc._id === documentId ? { ...doc, thumbnailUrl: data.thumbnailUrl } : doc)
+          );
+          console.log('✅ Thumbnail is ready:', data.thumbnailUrl);
+          return;
+        }
+
+      } catch (err) {
+        console.error('Error during thumbnail polling:', err);
+      }
+
+      // Wait before the next attempt
+      await new Promise(resolve => setTimeout(resolve, interval));
+      attempts++;
+    }
+
+    console.warn('⏰ Thumbnail not ready after 30 seconds.');
+  };
+
 
   const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this document?')) {
@@ -177,8 +213,22 @@ const Dashboard = () => {
             >
                 {/* Thumbnail Placeholder */}
                 <div className="relative w-full h-40 mb-4 rounded-[16px] bg-neutral-700/50 flex items-center justify-center shadow-[0_1px_0_0_rgba(255,255,255,0.03)_inset,0_0_0_1px_rgba(255,255,255,0.03)_inset,0_0_0_1px_rgba(0,0,0,0.1)]">
-                  <p className="text-neutral-500 text-sm">Thumbnail</p>
-                  {/* In the future, you can replace this with: <img src={doc.thumbnailUrl} className="w-full h-full object-cover rounded-[16px]" /> */}
+                  
+                {
+                  doc.thumbnailUrl ? (
+                    <img
+                      src={doc.thumbnailUrl}
+                      alt="Document Thumbnail"
+                      className="w-full h-full object-cover rounded-[16px] object-top"
+                    />
+                  ) : (
+                    <div className="animate-pulse w-full h-full rounded-[16px] bg-neutral-800/80 flex items-center justify-center shadow-[0_1px_0_0_rgba(255,255,255,0.03)_inset,0_0_0_1px_rgba(255,255,255,0.03)_inset,0_0_0_1px_rgba(0,0,0,0.1)]">
+                      {/* Optional: Icon or spinner */}
+                      <div className=" bg-neutral-300 rounded-md" />
+                    </div>
+                  )
+                }
+
                 </div>
 
                 <div className="flex flex-col flex-grow justify-between">
