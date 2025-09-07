@@ -5,6 +5,7 @@ import pdf from 'pdf-parse';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import Document from '../models/Document.js';
+import ChatHistory from '../models/ChatHistory.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -115,28 +116,37 @@ export const getDocuments = async (req, res) => {
 
 export const semanticSearch = async (req, res) => {
   const { query } = req.body;
-  if (!query) return res.status(400).json({ message: 'Query is required' });
 
-  const embeddingModel = genAI.getGenerativeModel({ model: "embedding-001" });
-  const result = await embeddingModel.embedContent(query);
-  const queryEmbedding = result.embedding.values;
-  
-  const searchResult = await qdrant.search(COLLECTION_NAME, {
-    vector: queryEmbedding,
-    limit: 5,
-    with_payload: true,
-    filter: {
-      must: [
-        { key: 'userId', match: { value: req.user._id.toString() } }
-      ]
-    }
-  });
+  if (!query) {
+    return res.status(400).json({ message: 'Query is required' });
+  }
 
-  const docIds = [...new Set(searchResult.map(item => item.payload.docId))];
-  const documents = await Document.find({ '_id': { $in: docIds } }).populate('createdBy', 'email');
+  try {
+    const embeddingModel = genAI.getGenerativeModel({ model: "embedding-001" });
+    const result = await embeddingModel.embedContent(query);
+    const queryEmbedding = result.embedding.values;
 
-  res.json(documents);
+    const searchResult = await qdrant.search(COLLECTION_NAME, {
+      vector: queryEmbedding,
+      limit: 5,
+      with_payload: true,
+      filter: {
+        must: [
+          { key: 'userId', match: { value: req.user._id.toString() } }
+        ]
+      }
+    });
+
+    const docIds = [...new Set(searchResult.map(item => item.payload.docId))];
+    const documents = await Document.find({ '_id': { $in: docIds } }).populate('createdBy', 'email');
+
+    res.json(documents);
+  } catch (error) {
+    console.error('Semantic search error:', error);
+    res.status(500).json({ message: 'Semantic search failed.' });
+  }
 };
+
 
 export const deleteDocument = async (req, res) => {
   const doc = await Document.findById(req.params.id);
@@ -152,47 +162,26 @@ export const deleteDocument = async (req, res) => {
   res.json({ message: 'Document removed' });
 };
 
-// export const chatWithDocument = async (req, res) => {
-//   const { query, history } = req.body;
-//   const { id: docId } = req.params;
-//   console.log(query, history);
-//   try {
-//     // 1. Embed the user's query
-//     const embeddingModel = genAI.getGenerativeModel({ model: "embedding-001" });
-//     const queryEmbeddingResult = await embeddingModel.embedContent(query);
-//     const queryEmbedding = queryEmbeddingResult.embedding.value;
-//     console.log("queryEmbedding ----------", queryEmbedding);
-//     // 2. Find relevant chunks in Qdrant for this specific document
-//     const searchResult = await qdrant.search(COLLECTION_NAME, {
-//       vector: queryEmbedding,
-//       limit: 3,
-//       with_payload: true,
-//       filter: { must: [{ key: 'docId', match: { value: docId } }] },
-//     });
-//     console.log("searchResult ----------", searchResult);
-//     const context = searchResult.map(item => item.payload.text).join('\n\n');
-
-//     // 3. Generate a response with Gemini
-//     const chatModel = genAI.getGenerativeModel({ model: 'gemini-pro' });
-//     const prompt = `Based on the following context, answer the user's question. If the context doesn't have the answer, say you don't know.\n\nContext:\n${context}\n\nHistory:\n${history.map(h => `${h.sender}: ${h.text}`).join('\n')}\n\nQuestion: ${query}`;
-//     const result = await chatModel.generateContent(prompt);
-//     console.log("result ----------", result);
-
-//     res.json({ response: result.response.text() });
-//   } catch (error) {
-//     console.error('Chat error:', error);
-//     res.status(500).json({ message: 'Error during chat processing.' });
-//   }
-// };
 export const chatWithDocument = async (req, res) => {
-  const { query, history } = req.body;
-  const { id: docId } = req.params;  // Ensure docId is passed in params
-  console.log("query, history ----------", query, history);
+  let { query, chatId } = req.body;
+  const { id: docId } = req.params;  
+
   try {
+    let chat;
+    if (chatId) {
+      chat = await ChatHistory.findById(chatId);
+    } else {
+      // Create a new chat history if one doesn't exist
+      const doc = await Document.findById(docId);
+      chat = new ChatHistory({ user: req.user._id, document: docId, title: `Chat with ${doc.title}` });
+    }
+
+    const history = chat.messages.map(msg => ({ sender: msg.sender, text: msg.text }));
+
     // 1. Embed the user's query
     const embeddingModel = genAI.getGenerativeModel({ model: "embedding-001" });
     const queryEmbeddingResult = await embeddingModel.embedContent(query);
-    
+
     // Check if embedding was successful
     if (!queryEmbeddingResult || !queryEmbeddingResult.embedding || !queryEmbeddingResult.embedding.values) {
       return res.status(400).json({ message: 'Failed to generate query embedding' });
@@ -200,14 +189,17 @@ export const chatWithDocument = async (req, res) => {
     
     const queryEmbedding = queryEmbeddingResult.embedding.values;  // Fixed to 'values'
     console.log("queryEmbedding ----------", queryEmbedding);
-    
-    console.log("user Id", req.user._id.toString())
-    // 2. Find relevant chunks in Qdrant for this specific document
+
     const searchResult = await qdrant.search(COLLECTION_NAME, {
       vector: queryEmbedding,
       limit: 3,
       with_payload: true,
-      filter: { must: [{ key: 'userId', match: { value:  req.user._id.toString() } }] },
+      filter: {
+        must: [{
+          key: 'userId',
+          match: { value: req.user._id.toString() }
+        }]
+      },
     });
 
     console.log("searchResult ----------", searchResult);
@@ -216,16 +208,21 @@ export const chatWithDocument = async (req, res) => {
     if (!searchResult || searchResult.length === 0) {
       return res.status(404).json({ message: 'No relevant documents found.' });
     }
-
-    const context = searchResult.map(item => item.payload.text).join('\n\n');
+    const filtered = searchResult.filter(item => item.payload.docId === docId);
+    const context = filtered.map(item => item.payload.text).join('\n\n');
 
     // 3. Generate a response with Gemini
     const chatModel = genAI.getGenerativeModel({ model: 'gemini-1.5-pro-latest' });
     const prompt = `Based on the following context, answer the user's question. If the context doesn't have the answer, say you don't know.\n\nContext:\n${context}\n\nHistory:\n${history.map(h => `${h.sender}: ${h.text}`).join('\n')}\n\nQuestion: ${query}`;
     const result = await chatModel.generateContent(prompt);
-    console.log("result ----------", result);
-    
-    res.json({ response: result.response.text() });
+    const botResponse = result.response.text();
+
+    // 4. Save chat history
+    chat.messages.push({ sender: 'user', text: query });
+    chat.messages.push({ sender: 'bot', text: botResponse });
+    await chat.save();
+
+    res.json({ response: botResponse, chatId: chat._id });
   } catch (error) {
     console.error('Chat error:', error);
     res.status(500).json({ message: 'Error during chat processing.' });
@@ -245,54 +242,6 @@ function streamToBuffer(stream) {
 }
 
 // Background job for embedding
-// async function processAndStoreEmbeddings(docId, userId, text) {
-//   try {
-//     const embeddingModel = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
-
-//     const chunks = text.match(/[\s\S]{1,1000}/g)?.filter(c => c.trim()) || [];
-
-//     if (chunks.length === 0) {
-//       console.warn(`⚠️ No valid chunks for document ${docId}`);
-//       return;
-//     }
-
-//     console.log(`✅ Found ${chunks.length} chunks for doc ${docId}`);
-
-//     const result = await embeddingModel.batchEmbedContents({
-//       model: "gemini-embedding-001",
-//       requests: chunks.map(chunk => ({
-//         content: {
-//           parts: [{ text: chunk }],
-//         },
-//         taskType: "RETRIEVAL_DOCUMENT",
-//         // outputDimensionality: 768,
-//       })),
-//     });
-
-//     const embeddings = result.embeddings;
-//     console.log(`✅ Got ${embeddings.length} embeddings for doc ${docId}`);
-
-//     if (!embeddings || embeddings.length === 0) {
-//       console.warn(`⚠️ No valid embeddings for document ${docId}`);
-//       return;
-//     }
-
-//     await qdrant.upsert(COLLECTION_NAME, {
-//       wait: true,
-//       points: embeddings.map((embedding, i) => ({
-//         id: uuidv4(),
-//         vector: embedding.values,
-//         payload: { docId: docId.toString(), userId: userId.toString(), text: chunks[i] },
-//       })),
-//     });
-
-//     console.log(`✅ Stored ${embeddings.length} embeddings for doc ${docId}`);
-//   } catch (error) {
-//     console.error(`❌ Embedding pipeline failed for doc ${docId}:`, error);
-//   }
-// }
-
-
 async function processAndStoreEmbeddings(docId, userId, text) {
   try {
     const embeddingModel = genAI.getGenerativeModel({ model: "embedding-001" });
@@ -345,3 +294,115 @@ async function processAndStoreEmbeddings(docId, userId, text) {
     console.error(`❌ Embedding pipeline failed for doc ${docId}:`, error);
   }
 }
+
+
+export const getChatHistories = async (req, res) => {
+  try {
+    const histories = await ChatHistory.find({ user: req.user._id, document: { $exists: false } })
+      .sort({ updatedAt: -1 })
+      .select('title updatedAt'); // Only select title and last update time
+    res.json(histories);
+  } catch (error) {
+    console.error('Error fetching chat histories:', error);
+    res.status(500).json({ message: 'Failed to fetch chat histories' });
+  }
+};
+
+export const getChatHistory = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const chat = await ChatHistory.findById(id);
+    res.json(chat);
+  } catch (error) {
+    console.error('Error fetching chat history:', error);
+    res.status(500).json({ message: 'Failed to fetch chat history' });
+  }
+};
+
+export const getDocChatHistory = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const chat = await ChatHistory.find({ document: id }).sort({ updatedAt: -1 });
+    res.json(chat);
+  } catch (error) {
+    console.error('Error fetching chat history:', error);
+    res.status(500).json({ message: 'Failed to fetch chat history' });
+  }
+};
+
+
+
+export const chatAcrossAllDocuments = async (req, res) => {
+  let { query, chatId } = req.body;
+
+  if (!query) {
+    return res.status(400).json({ message: 'Query is required' });
+  }
+
+  try {
+    // 1. Generate embedding for the query
+    let chat;
+    if (chatId) {
+      chat = await ChatHistory.findById(chatId);
+    } else {
+      // Create a new chat history if one doesn't exist
+      chat = new ChatHistory({ user: req.user._id, title: query.substring(0, 40) + '...' });
+    }
+
+    const history = chat.messages.map(msg => ({ sender: msg.sender, text: msg.text }));
+
+    const embeddingModel = genAI.getGenerativeModel({ model: "embedding-001" });
+    const queryEmbeddingResult = await embeddingModel.embedContent(query);
+    const queryEmbedding = queryEmbeddingResult?.embedding?.values;
+
+    if (!queryEmbedding) {
+      return res.status(400).json({ message: 'Failed to generate query embedding' });
+    }
+
+    // 2. Search across all documents of this user
+    const searchResult = await qdrant.search(COLLECTION_NAME, {
+      vector: queryEmbedding,
+      limit: 5,
+      with_payload: true,
+      filter: {
+        must: [
+          { key: 'userId', match: { value: req.user._id.toString() } }
+        ]
+      }
+    });
+
+    if (!searchResult || searchResult.length === 0) {
+      return res.status(404).json({ message: 'No relevant document chunks found.' });
+    }
+
+    const context = searchResult.map(item => item.payload.text).join('\n\n');
+
+    // 3. Generate a Gemini response based on the context and chat history
+    const chatModel = genAI.getGenerativeModel({ model: 'gemini-1.5-pro-latest' });
+    const prompt = `You are a helpful assistant. Use the provided context and conversation history to answer the user’s question. 
+    - If the context is relevant, incorporate it into your answer. 
+    - If the context is missing or not relevant, simply answer the question naturally without mentioning the lack of context.
+
+    Context:
+    ${context}
+
+    History:
+    ${history.map(h => `${h.sender}: ${h.text}`).join('\n')}
+
+    Question: ${query}
+    `;
+
+    const result = await chatModel.generateContent(prompt);
+    const botResponse = result.response.text();
+
+    // 4. Save chat history
+    chat.messages.push({ sender: 'user', text: query });
+    chat.messages.push({ sender: 'bot', text: botResponse });
+    await chat.save();
+
+    res.json({ response: botResponse, chatId: chat._id });
+  } catch (error) {
+    console.error('Chat error (across all docs):', error);
+    res.status(500).json({ message: 'Error during chat processing.' });
+  }
+};

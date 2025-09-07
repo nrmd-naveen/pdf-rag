@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { BASE_URL } from '../lib/utils';
+import PdfPreviewModal from '../components/PdfPreviewModal';
 import ChatModal from '../components/ChatModal';
 
 const Dashboard = () => {
@@ -13,9 +14,15 @@ const Dashboard = () => {
   const [isUploading, setIsUploading] = useState(false);
 
   const [selectedDoc, setSelectedDoc] = useState(null);
+  const [chatDoc, setChatDoc] = useState(null);
 
-  const navigate = useNavigate();
   const userInfo = JSON.parse(localStorage.getItem('userInfo'));
+
+  const logoutHandler = () => {
+    localStorage.removeItem('userInfo');
+    navigate('/login');
+  };
+  const navigate = useNavigate();
 
   const fetchDocuments = useCallback(async () => {
     setLoading(true);
@@ -95,75 +102,114 @@ const Dashboard = () => {
     }
   };
 
+  const handleDeleteClick = (e, id) => {
+    e.stopPropagation(); // Prevent card's onClick from firing
+    handleDelete(id);
+  };
+
+  const handleChatClick = (e, doc) => {
+    e.stopPropagation(); // Prevent card's onClick from firing
+    setChatDoc(doc);
+  };
+
   return (
     <>
-    {selectedDoc && <ChatModal doc={selectedDoc} onClose={() => setSelectedDoc(null)} />}
-    <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">My Documents</h1>
-        <label className={`bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg cursor-pointer transition duration-300 ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
-          {isUploading ? 'Uploading...' : 'Upload PDF'}
-          <input type="file" accept=".pdf" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
-        </label>
+    {chatDoc && <ChatModal doc={chatDoc} onClose={() => setChatDoc(null)} />}
+    {selectedDoc && <PdfPreviewModal doc={selectedDoc} onClose={() => setSelectedDoc(null)} />}
+    <div className="min-h-screen bg-neutral-900 text-white p-4 sm:p-6 lg:p-8 bg-gradient-to-br from-neutral-900 via-neutral-900 to-neutral-800">
+      <div className="container mx-auto">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+          <h1 className="text-3xl sm:text-4xl font-bold text-neutral-100">My Documents</h1>
+          <div className="flex items-center gap-4">
+            <Link to="/chat" className="border border-green-600 bg-green-800/20 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+              Ask Question
+            </Link>
+            <label className={`relative bg-indigo-700/20 border border-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg cursor-pointer transition duration-300 ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
+              {isUploading ? 'Uploading...' : 'Upload PDF'}
+              <input type="file" accept=".pdf" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
+              
+            </label>
+                {userInfo && (
+                  <button onClick={logoutHandler} className="border border-red-500 bg-red-700/20 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Logout</button>
+                )}
+          </div>
       </div>
 
       {/* Search and Filter Bar */}
-      <div className="mb-8 bg-white p-4 rounded-lg shadow">
+        <div className="mb-10 bg-neutral-800/50 p-4 rounded-xl shadow-lg border border-neutral-700">
         <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4">
           <div className="flex-grow">
             <input
               type="text"
               placeholder={searchType === 'keyword' ? "Search by title..." : "Ask a question about your documents..."}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-neutral-200"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
           <div className="flex items-center gap-4">
-            <select value={searchType} onChange={(e) => setSearchType(e.target.value)} className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none">
+              <select value={searchType} onChange={(e) => setSearchType(e.target.value)} className="px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg focus:outline-none text-neutral-200">
               <option value="keyword">Keyword</option>
               <option value="semantic">Semantic</option>
             </select>
-            <button type="submit" className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Search</button>
+              <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Search</button>
           </div>
         </form>
       </div>
 
-      {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">{error}</div>}
+        {error && <div className="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg mb-6">{error}</div>}
 
       {/* Document Grid */}
       {loading ? (
-        <div className="text-center py-10">
-          <p className="text-gray-500">Loading documents...</p>
+          <div className="text-center py-10">
+            <p className="text-neutral-400">Loading documents...</p>
         </div>
       ) : documents.length === 0 ? (
-        <div className="text-center py-10 bg-white rounded-lg shadow">
-          <h3 className="text-xl font-semibold text-gray-700">No documents found.</h3>
-          <p className="text-gray-500 mt-2">Upload your first PDF to get started!</p>
+          <div className="text-center py-16 bg-neutral-800/30 rounded-xl border border-neutral-700">
+            <h3 className="text-2xl font-semibold text-neutral-200">No documents found.</h3>
+            <p className="text-neutral-400 mt-2">Upload your first PDF to get started!</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {documents.map((doc) => (
-            <div key={doc._id} className="bg-white rounded-lg shadow-lg overflow-hidden flex flex-col justify-between transition-transform transform hover:-translate-y-1 cursor-pointer"
+              <div key={doc._id} className="group rounded-[24px] bg-neutral-800/90 shadow-[0_1px_0_0_rgba(255,255,255,0.03)_inset,0_0_0_1px_rgba(255,255,255,0.03)_inset,0_0_0_1px_rgba(0,0,0,0.1),0_2px_2px_0_rgba(0,0,0,0.1),0_4px_4px_0_rgba(0,0,0,0.1),0_8px_8px_0_rgba(0,0,0,0.1)] p-3 transition-all duration-300 hover:bg-neutral-800/80 hover:-translate-y-1 cursor-pointer flex flex-col"
                  onClick={() => setSelectedDoc(doc)}
             >
-              <div className="p-6 flex-grow">
-                <h2 className="text-xl font-bold text-gray-800 mb-2 truncate">{doc.title}</h2>
-                <p className="text-gray-600 text-sm mb-4 h-16 overflow-hidden">{doc.summary}</p>
-                <div className="flex flex-wrap gap-2">
+                {/* Thumbnail Placeholder */}
+                <div className="relative w-full h-40 mb-4 rounded-[16px] bg-neutral-700/50 flex items-center justify-center shadow-[0_1px_0_0_rgba(255,255,255,0.03)_inset,0_0_0_1px_rgba(255,255,255,0.03)_inset,0_0_0_1px_rgba(0,0,0,0.1)]">
+                  <p className="text-neutral-500 text-sm">Thumbnail</p>
+                  {/* In the future, you can replace this with: <img src={doc.thumbnailUrl} className="w-full h-full object-cover rounded-[16px]" /> */}
+                </div>
+
+                <div className="flex flex-col flex-grow justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-neutral-200 mb-2 truncate" title={doc.title}>{doc.title}</h2>
+                    <p className="text-neutral-400 text-sm mb-4 h-16 overflow-hidden">{doc.summary || 'No summary available.'}</p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 mb-4">
                   {doc.tags.slice(0, 3).map((tag, index) => (
-                    <span key={index} className="bg-gray-200 text-gray-700 text-xs font-semibold px-2.5 py-1 rounded-full">{tag}</span>
+                      <span key={index} className="bg-neutral-700 text-neutral-300 text-xs font-semibold px-2.5 py-1 rounded-full">{tag}</span>
                   ))}
                 </div>
-              </div>
-              <div className="bg-gray-50 px-6 py-3 flex justify-between items-center">
-                <p className="text-xs text-gray-500">Created by: {doc.createdBy.email}</p>
-                <button onClick={() => handleDelete(doc._id)} className="text-red-500 hover:text-red-700 text-sm font-semibold">Delete</button>
+                </div>
+
+                <div className="border-t border-neutral-700/50 pt-3 flex justify-between items-center">
+                  <p className="text-xs text-neutral-500 truncate" title={doc.createdBy.email}>By: {doc.createdBy.email}</p>
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <button onClick={(e) => handleChatClick(e, doc)} className="bg-transparent border hover:bg-sky-500/10 px-2 py-1 rounded-full w-16 text-sky-400 hover:text-sky-300 text-xs font-semibold">
+                      Chat
+                    </button>
+                    <button onClick={(e) => handleDeleteClick(e, doc._id)} className="bg-transparent border hover:bg-red-400/10 px-2 py-1 rounded-full w-16 text-red-500 hover:text-red-400 text-xs font-semibold">
+                      Delete
+                    </button>
+                  </div>
               </div>
             </div>
           ))}
         </div>
       )}
+      </div>
     </div>
     </>
   );
