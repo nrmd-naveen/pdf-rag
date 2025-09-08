@@ -4,13 +4,17 @@ import { useNavigate, Link } from 'react-router-dom';
 import { BASE_URL } from '../lib/utils';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import ChatModal from '../components/ChatModal';
+import SearchComponent from '../components/SearchComponent';
+import { useMemo } from 'react';
 
 const Dashboard = () => {
-  const [documents, setDocuments] = useState([]);
+  const [allDocuments, setAllDocuments] = useState([]); // Stores all docs from API
+  const [filteredDocuments, setFilteredDocuments] = useState([]); // Docs to display
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [searchType, setSearchType] = useState('keyword'); // 'keyword' or 'semantic'
+  const [searchType, setSearchType] = useState('semantic');
+  const [activeTags, setActiveTags] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
 
   const [selectedDoc, setSelectedDoc] = useState(null);
@@ -24,7 +28,7 @@ const Dashboard = () => {
   };
   const navigate = useNavigate();
 
-  const fetchDocuments = useCallback(async () => {
+  const fetchAllDocuments = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -34,13 +38,8 @@ const Dashboard = () => {
         },
       };
 
-      let response;
-      if (searchType === 'semantic' && searchTerm.trim() !== '') {
-        response = await axios.post(BASE_URL + '/api/documents/semantic-search', { query: searchTerm }, config);
-      } else {
-        response = await axios.get(`${BASE_URL}/api/documents?text=${searchTerm}`, config);
-      }
-      setDocuments(response.data);
+      const response = await axios.get(`${BASE_URL}/api/documents`, config);
+      setAllDocuments(response.data);
     } catch (err) {
       setError('Failed to fetch documents.');
       if (err.response?.status === 401) {
@@ -50,15 +49,56 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [userInfo.token, navigate, searchTerm, searchType]);
+  }, [userInfo.token, navigate]);
 
   useEffect(() => {
-    fetchDocuments();
-  }, [fetchDocuments]);
+    fetchAllDocuments();
+  }, [fetchAllDocuments]);
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    fetchDocuments();
+  // This effect handles all filtering logic
+  useEffect(() => {
+    console.log("searchType", searchType);
+    let documentsToDisplay = [...allDocuments];
+    if (searchType === 'all' && activeTags.length > 0) {
+      documentsToDisplay = documentsToDisplay.filter(doc =>
+        activeTags.some(activeTag => doc.tags.includes(activeTag))
+      );
+    }
+    // Semantic search results will overwrite the list, so no special filtering needed here.
+    setFilteredDocuments(documentsToDisplay);
+  }, [allDocuments, activeTags, searchType]);
+
+  useEffect(() => {
+    // This is a good spot for debugging, but can be removed for production.
+    // console.log(activeTags)
+  }, [activeTags])
+
+  const handleSearch = async (query, type) => {
+    setSearchType(type); // Set the search type to correctly trigger the filtering effect
+    if (type === 'semantic' && query.trim()) {
+      setLoading(true);
+      setError('');
+      try {
+        const config = { headers: { Authorization: `Bearer ${userInfo.token}` } };
+        const response = await axios.post(`${BASE_URL}/api/documents/semantic-search`, { query }, config);
+        setFilteredDocuments(response.data); // Directly set results from semantic search
+      } catch (err) {
+        setError('Semantic search failed.');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // If search is cleared or it's not a semantic search, reset to all documents
+      setFilteredDocuments(allDocuments);
+    }
+  };
+
+  const handleTagFilter = (tags) => {
+    setActiveTags(tags);
+    // console.log("activeTags", activeTags);
+
+    // The filtering logic is now in the useEffect hook
+    // which depends on `activeTags`.
   };
 
   const handleFileUpload = async (e) => {
@@ -88,7 +128,7 @@ const Dashboard = () => {
       pollForThumbnail(document._id, config);
 
       // 5. Refresh documents list immediately
-      await fetchDocuments();
+      await fetchAllDocuments();
     } catch (err) {
       setError('File upload failed. Please try again.');
       console.error(err);
@@ -96,6 +136,8 @@ const Dashboard = () => {
       setIsUploading(false);
     }
   };
+  
+  const allAvailableTags = useMemo(() => [...new Set(allDocuments.flatMap(doc => doc.tags))], [allDocuments]);
 
 
   const pollForThumbnail = async (documentId, config, maxAttempts = 30, interval = 1000) => {
@@ -106,7 +148,7 @@ const Dashboard = () => {
         const { data } = await axios.get(`${BASE_URL}/api/documents/poll-thumbnail/${documentId}`, config);
 
         if (data.thumbnailUrl) {
-          setDocuments(prevDocs => 
+          setAllDocuments(prevDocs => 
             prevDocs.map(doc => doc._id === documentId ? { ...doc, thumbnailUrl: data.thumbnailUrl } : doc)
           );
           console.log('✅ Thumbnail is ready:', data.thumbnailUrl);
@@ -131,7 +173,7 @@ const Dashboard = () => {
       try {
         const config = { headers: { Authorization: `Bearer ${userInfo.token}` } };
         await axios.delete(`${BASE_URL}/api/documents/${id}`, config);
-        setDocuments(documents.filter(doc => doc._id !== id));
+        setAllDocuments(allDocuments.filter(doc => doc._id !== id));
       } catch (err) {
         setError('Failed to delete document.');
       }
@@ -172,26 +214,7 @@ const Dashboard = () => {
       </div>
 
       {/* Search and Filter Bar */}
-        <div className="mb-10 bg-neutral-800/50 p-4 rounded-xl shadow-lg border border-neutral-700">
-        <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-grow">
-            <input
-              type="text"
-              placeholder={searchType === 'keyword' ? "Search by title..." : "Ask a question about your documents..."}
-              className="w-full px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-neutral-200"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <div className="flex items-center gap-4">
-              <select value={searchType} onChange={(e) => setSearchType(e.target.value)} className="px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg focus:outline-none text-neutral-200">
-              <option value="keyword">Keyword</option>
-              <option value="semantic">Semantic</option>
-            </select>
-              <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Search</button>
-          </div>
-        </form>
-      </div>
+      <SearchComponent onSearch={handleSearch} onTagFilter={handleTagFilter} allTags={allAvailableTags} isSearching={loading} />
 
         {error && <div className="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg mb-6">{error}</div>}
 
@@ -200,14 +223,14 @@ const Dashboard = () => {
           <div className="text-center py-10">
             <p className="text-neutral-400">Loading documents...</p>
         </div>
-      ) : documents.length === 0 ? (
+      ) : filteredDocuments.length === 0 ? (
           <div className="text-center py-16 bg-neutral-800/30 rounded-xl border border-neutral-700">
             <h3 className="text-2xl font-semibold text-neutral-200">No documents found.</h3>
-            <p className="text-neutral-400 mt-2">Upload your first PDF to get started!</p>
+            <p className="text-neutral-400 mt-2">{allDocuments.length > 0 ? 'Try adjusting your search or filter.' : 'Upload your first PDF to get started!'}</p>
         </div>
       ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {documents.map((doc) => (
+          {filteredDocuments.map((doc) => (
               <div key={doc._id} className="group rounded-[24px] bg-neutral-800/90 shadow-[0_1px_0_0_rgba(255,255,255,0.03)_inset,0_0_0_1px_rgba(255,255,255,0.03)_inset,0_0_0_1px_rgba(0,0,0,0.1),0_2px_2px_0_rgba(0,0,0,0.1),0_4px_4px_0_rgba(0,0,0,0.1),0_8px_8px_0_rgba(0,0,0,0.1)] p-3 transition-all duration-300 hover:bg-neutral-800/80 hover:-translate-y-1 cursor-pointer flex flex-col"
                  onClick={() => setSelectedDoc(doc)}
             >
