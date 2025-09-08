@@ -8,17 +8,21 @@ import qdrant from '../config/qdrantClient.js';
 const COLLECTION_NAME = process.env.QDRANT_COLLECTION_NAME;
 
 export const chatWithDocument = async (req, res) => {
+  console.log('chatWithDocument');
   let { query, chatId } = req.body;
   const { id: docId } = req.params;  
   
   try {
     let chat;
+    const doc = await Document.findById(docId);
+    let isNewChat = false;
+    
     if (chatId) {
         chat = await ChatHistory.findById(chatId);
     } else {
         // Create a new chat history if one doesn't exist
-        const doc = await Document.findById(docId);
-        chat = new ChatHistory({ user: req.user._id, document: docId, title: `Chat with ${doc.title}` });
+      chat = new ChatHistory({ user: req.user._id, document: docId, title: `Chat with ${doc.title}` });
+      isNewChat = true;
     }
     
     const history = chat.messages.map(msg => ({ sender: msg.sender, text: msg.text }));
@@ -41,39 +45,39 @@ export const chatWithDocument = async (req, res) => {
       with_payload: true,
       filter: {
           must: [{
-          key: 'userId',
-          match: { value: req.user._id.toString() }
-        }]
-    },
-});
+            key: 'userId',
+            match: { value: req.user._id.toString() }
+          }]
+      },  
+    });
 
 
-// console.log("searchResult ----------", searchResult);
+    // console.log("searchResult ----------", searchResult);
 
-// Check if search returned any results
-if (!searchResult || searchResult.length === 0) {
-    return res.status(404).json({ message: 'No relevant documents found.' });
-}
+    // Check if search returned any results
+      // if (!searchResult || searchResult.length === 0) {
+      //     return res.status(404).json({ message: 'No relevant documents found.' });
+      // }
+    
+    const filtered = searchResult.filter(item => item.payload.docId === docId);
+    const context = filtered.map(item => item.payload.text).join('\n\n');
 
-const filtered = searchResult.filter(item => item.payload.docId === docId);
-const context = filtered.map(item => item.payload.text).join('\n\n');
+    // 3. Generate a response with Gemini
+    const chatModel = genAI.getGenerativeModel({ model: 'gemini-1.5-pro-latest' });
+    const prompt = `Based on the following context, answer the user's question. If the context doesn't have the answer, say you don't know.\n\nContext:\n${context}\n\nHistory:\n${history.map(h => `${h.sender}: ${h.text}`).join('\n')}\n\nTitle: ${doc.title}\n\nSummary:\n${doc.summary}\n\nQuestion: ${query}`;
+    const result = await chatModel.generateContent(prompt);
+    const botResponse = result.response.text();
 
-// 3. Generate a response with Gemini
-const chatModel = genAI.getGenerativeModel({ model: 'gemini-1.5-pro-latest' });
-const prompt = `Based on the following context, answer the user's question. If the context doesn't have the answer, say you don't know.\n\nContext:\n${context}\n\nHistory:\n${history.map(h => `${h.sender}: ${h.text}`).join('\n')}\n\nQuestion: ${query}`;
-const result = await chatModel.generateContent(prompt);
-const botResponse = result.response.text();
+    // 4. Save chat history
+    chat.messages.push({ sender: 'user', text: query });
+    chat.messages.push({ sender: 'bot', text: botResponse });
+    await chat.save();
 
-// 4. Save chat history
-chat.messages.push({ sender: 'user', text: query });
-chat.messages.push({ sender: 'bot', text: botResponse });
-await chat.save();
-
-res.json({ response: botResponse, chatId: chat._id });
-} catch (error) {
-    console.error('Chat error:', error);
-    res.status(500).json({ message: 'Error during chat processing.' });
-}
+    res.json({ response: botResponse, chatId: chat._id });
+    } catch (error) {
+      console.error('Chat error:', error);
+      res.status(500).json({ message: 'Error during chat processing.' });
+    }
 };
 
 

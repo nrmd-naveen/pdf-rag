@@ -1,18 +1,20 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, use } from 'react';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
 import { BASE_URL } from '../lib/utils';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import ChatModal from '../components/ChatModal';
-import SearchComponent from '../components/SearchComponent';
 import { useMemo } from 'react';
+import SearchComponent from '../components/SearchComponent';
+import Toast from '../components/Toast';
 
 const Dashboard = () => {
   const [allDocuments, setAllDocuments] = useState([]); // Stores all docs from API
   const [filteredDocuments, setFilteredDocuments] = useState([]); // Docs to display
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [rateLimitError, setRateLimitError] = useState('');
+  const [toast, setToast] = useState({ message: '', type: '' });
   const [searchType, setSearchType] = useState('semantic');
   const [activeTags, setActiveTags] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -24,7 +26,7 @@ const Dashboard = () => {
 
   const logoutHandler = () => {
     localStorage.removeItem('userInfo');
-    navigate('/login');
+    navigate('/login', { state: { message: 'Logged out successfully.', type: 'success' } });
   };
   const navigate = useNavigate();
 
@@ -41,7 +43,7 @@ const Dashboard = () => {
       const response = await axios.get(`${BASE_URL}/api/documents`, config);
       setAllDocuments(response.data);
     } catch (err) {
-      setError('Failed to fetch documents.');
+      setToast({ message: 'Failed to fetch documents.', type: 'error' });
       if (err.response?.status === 401) {
         localStorage.removeItem('userInfo');
         navigate('/login');
@@ -57,7 +59,7 @@ const Dashboard = () => {
 
   // This effect handles all filtering logic
   useEffect(() => {
-    console.log("searchType", searchType);
+    // console.log("searchType", searchType);
     let documentsToDisplay = [...allDocuments];
     if (searchType === 'all' && activeTags.length > 0) {
       documentsToDisplay = documentsToDisplay.filter(doc =>
@@ -68,10 +70,7 @@ const Dashboard = () => {
     setFilteredDocuments(documentsToDisplay);
   }, [allDocuments, activeTags, searchType]);
 
-  useEffect(() => {
-    // This is a good spot for debugging, but can be removed for production.
-    // console.log(activeTags)
-  }, [activeTags])
+
 
   const handleSearch = async (query, type) => {
     setSearchType(type); // Set the search type to correctly trigger the filtering effect
@@ -83,7 +82,7 @@ const Dashboard = () => {
         const response = await axios.post(`${BASE_URL}/api/documents/semantic-search`, { query }, config);
         setFilteredDocuments(response.data); // Directly set results from semantic search
       } catch (err) {
-        setError('Semantic search failed.');
+        setToast({ message: 'Semantic search failed.', type: 'error' });
       } finally {
         setLoading(false);
       }
@@ -101,36 +100,50 @@ const Dashboard = () => {
     // which depends on `activeTags`.
   };
 
+
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    
+    // Check for file size (3MB limit)
+    if (file.size > 3 * 1024 * 1024) {
+      setToast({ message: 'File size cannot exceed 3MB.', type: 'warning' });
+      e.target.value = null; // Reset file input
+      return;
+    }
 
     setIsUploading(true);
-    setError('');
 
     try {
       const config = { headers: { Authorization: `Bearer ${userInfo.token}` } };
 
       // 1. Get pre-signed URL
-      const { data: { url, key } } = await axios.get(`${BASE_URL}/api/documents/upload-url?filename=${file.name}`, config);
-
+      const response = await axios.get(`${BASE_URL}/api/documents/upload-url?filename=${file.name}`, config);
+      const { url, key } = response.data;
       // 2. Upload to S3
       await axios.put(url, file, { headers: { 'Content-Type': 'application/pdf' } });
       
       // 3. Create document record in backend
-      const { data: document } = await axios.post(
+      const { data } = await axios.post(
         `${BASE_URL}/api/documents`,
         { title: file.name.replace('.pdf', ''), s3Path: key },
         config
       );
 
+      setAllDocuments([...allDocuments, data.document]);
+
       // 4. Start polling in the background (don't await it)
-      pollForThumbnail(document._id, config);
+      pollForThumbnail(data.document._id, config);
+      setToast({ message: 'File uploaded successfully!', type: 'success' });
 
       // 5. Refresh documents list immediately
-      await fetchAllDocuments();
+      // await fetchAllDocuments();
     } catch (err) {
-      setError('File upload failed. Please try again.');
+      if (err.response?.status === 403) {
+        setToast({ message: err.response.data.message || 'You have reached the upload limit.', type: 'warning' });
+        return;
+      }
+      setToast({ message: 'File upload failed. Please try again.', type: 'error' });
       console.error(err);
     } finally {
       setIsUploading(false);
@@ -174,8 +187,9 @@ const Dashboard = () => {
         const config = { headers: { Authorization: `Bearer ${userInfo.token}` } };
         await axios.delete(`${BASE_URL}/api/documents/${id}`, config);
         setAllDocuments(allDocuments.filter(doc => doc._id !== id));
+        setToast({ message: 'Document deleted successfully.', type: 'success' });
       } catch (err) {
-        setError('Failed to delete document.');
+        setToast({ message: 'Failed to delete document.', type: 'error' });
       }
     }
   };
@@ -193,7 +207,7 @@ const Dashboard = () => {
   return (
     <>
     {chatDoc && <ChatModal doc={chatDoc} onClose={() => setChatDoc(null)} />}
-    {selectedDoc && <PdfPreviewModal doc={selectedDoc} onClose={() => setSelectedDoc(null)} />}
+    {selectedDoc && <PdfPreviewModal openChatModal={handleChatClick} doc={selectedDoc} onClose={() => setSelectedDoc(null)} />}
     <div className="min-h-screen bg-neutral-900 text-white p-4 sm:p-6 lg:p-8 bg-gradient-to-br from-neutral-900 via-neutral-900 to-neutral-800">
       <div className="container mx-auto">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
@@ -216,7 +230,7 @@ const Dashboard = () => {
       {/* Search and Filter Bar */}
       <SearchComponent onSearch={handleSearch} onTagFilter={handleTagFilter} allTags={allAvailableTags} isSearching={loading} />
 
-        {error && <div className="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg mb-6">{error}</div>}
+      {toast.message && <Toast message={toast.message} type={toast.type} onClear={() => setToast({ message: '', type: '' })} />}
 
       {/* Document Grid */}
       {loading ? (

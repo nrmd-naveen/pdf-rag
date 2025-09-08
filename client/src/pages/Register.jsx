@@ -1,23 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
 import { BASE_URL } from '../lib/utils';
+import Toast from '../components/Toast';
 
 const Register = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [toast, setToast] = useState({ message: '', type: '' });
+  const [registerSuccess, setRegisterSuccess] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (registerSuccess) {
+      const timer = setTimeout(() => navigate('/'), 1000); // Delay navigation
+      return () => clearTimeout(timer);
+    }
+  }, [registerSuccess, navigate]);
 
   const submitHandler = async (e) => {
     e.preventDefault();
-    setError('');
+    setToast({ message: '', type: '' });
     try {
       const { data } = await axios.post(`${BASE_URL}/api/auth/register`, { email, password });
       localStorage.setItem('userInfo', JSON.stringify(data));
-      navigate('/');
+      setToast({ message: 'Registration successful!', type: 'success' });
+      setRegisterSuccess(true);
     } catch (err) {
-      setError(err.response?.data?.message || 'Registration failed');
+      setToast({ message: err.response?.data?.message || 'Registration failed', type: 'error' });
       console.error('Registration failed', err);
     }
   };
@@ -25,11 +35,11 @@ const Register = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-neutral-900 text-white p-4 sm:p-6 lg:p-8 bg-gradient-to-br from-neutral-900 via-neutral-900 to-neutral-800">
       <div className="max-w-md w-full space-y-8 bg-neutral-800/90 p-8 rounded-[24px] shadow-2xl border border-neutral-700">
+        {toast.message && <Toast message={toast.message} type={toast.type} onClear={() => setToast({ message: '', type: '' })} />}
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-neutral-100">Create your account</h2>
         </div>
         <form onSubmit={submitHandler} className="mt-8 space-y-6">
-          {error && <div className="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg" role="alert">{error}</div>}
           <div className="space-y-4">
             <div>
               <label htmlFor="email-address" className="sr-only">Email address</label>

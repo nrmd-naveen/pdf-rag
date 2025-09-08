@@ -9,6 +9,7 @@ import s3Client from '../config/s3Client.js';
 import genAI from '../config/googleGenerativeAI.js';
 import qdrant from '../config/qdrantClient.js';
 import dotenv from 'dotenv';
+import mongoose from 'mongoose';
 
 dotenv.config();
 
@@ -18,6 +19,15 @@ const COLLECTION_NAME = process.env.QDRANT_COLLECTION_NAME;
 const chatHistoryCache = new Map(); // Optional, not used in current code
 
 export const getUploadUrl = async (req, res) => {
+  const docs = await Document.find({
+    createdBy: req.user._id
+  })
+  
+  // Rate Limiting to 2 Docs
+  if (docs.length >= 2 && req.user._id.toString() !== '68bd820012e9f79ed3018b7f') {
+    return res.status(403).json({ message: 'You have reached the limit of uploads' });
+  }
+
   const { filename } = req.query;
   const key = `${req.user._id}/${uuidv4()}-${filename}`;
 
@@ -38,8 +48,17 @@ export const getUploadUrl = async (req, res) => {
 
 export const createDocument = async (req, res) => {
   const { title, s3Path } = req.body;
-
+  
   try {
+    const docs = await Document.find({
+        createdBy: req.user._id
+    })
+  
+    // Rate Limiting to 2 Docs
+    if (docs.length >= 2 && req.user._id.toString() !== '68bd820012e9f79ed3018b7f') {
+      return res.status(403).json({ message: 'You have reached the limit of uploads' });
+    }
+
     // 1. Fetch PDF from S3
     const getObjectCommand = new GetObjectCommand({
       Bucket: process.env.AWS_S3_BUCKET_NAME,
@@ -54,10 +73,10 @@ export const createDocument = async (req, res) => {
 
     // 3. Generate summary and tags
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro-latest' });
-    const documents = await Document.find({});  // Get all documents, or use a filter
+    // const docs = await Document.find({});  // Get all docs, or use a filter
 
-    // Extract all tags from the documents
-    const existingTags = documents.reduce((acc, doc) => {
+    // Extract all tags from the docs
+    const existingTags = docs.reduce((acc, doc) => {
       if (doc.tags && Array.isArray(doc.tags)) {
         acc.push(...doc.tags);  // Add tags from each document
       }
@@ -91,7 +110,8 @@ export const createDocument = async (req, res) => {
       tags,
       createdBy: req.user._id,
     });
-    await document.save();
+    const savedDoc = await document.save();
+    const responseDoc = await savedDoc.populate('createdBy', 'email');
     
     // 6. Handle Thumbnail Generation Async
     generateThumbnail(s3Path, document._id);
@@ -100,7 +120,7 @@ export const createDocument = async (req, res) => {
     processAndStoreEmbeddings(document._id, req.user._id, textContent);
 
 
-    res.status(201).json(document);
+    res.status(201).json({ document: responseDoc });
   } catch (error) {
     console.error('Error creating document:', error);
     res.status(500).json({ message: 'Server error during document creation.' });

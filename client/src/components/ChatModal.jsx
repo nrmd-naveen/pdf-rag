@@ -16,9 +16,6 @@ const ChatModal = ({ doc, onClose }) => {
 
   useEffect(scrollToBottom, [messages]);
 
-  useEffect(() => {
-    console.log("messages ----------", messages);
-  }, [messages]);
   
   useEffect(() => {
     const fetchChatHistory = async () => {
@@ -29,7 +26,7 @@ const ChatModal = ({ doc, onClose }) => {
         // This is a new endpoint we'll need to create
         const { data } = await axios.get(`${BASE_URL}/api/documents/${doc._id}/chathistory`, config);
         if (data) {
-          console.log("data ----------", data);
+          // console.log("data ----------", data);
           setMessages(data[0].messages || []);
           setChatId(data._id);
         }
@@ -77,8 +74,8 @@ const ChatModal = ({ doc, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 bg-opacity-50 flex justify-center items-center z-50 p-4">
-      <div className="bg-neutral-800/90 rounded-[24px] shadow-2xl w-full max-w-2xl h-[80vh] flex flex-col border border-neutral-700 text-white">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-2xl bg-opacity-50 flex justify-center items-center z-50 p-4">
+      <div className="bg-neutral-800/60 rounded-[24px] shadow-2xl w-full max-w-2xl h-[80vh] flex flex-col border border-neutral-700 text-white">
         <header className="p-4 border-b border-neutral-700/50 flex justify-between items-center">
           <h2 className="text-lg font-semibold text-neutral-200 truncate pr-4">Chat with: {doc.title}</h2>
           <button onClick={onClose} className="text-neutral-400 hover:text-white text-2xl leading-none">&times;</button>
@@ -95,7 +92,7 @@ const ChatModal = ({ doc, onClose }) => {
           {messages?.map((msg, index) => (
             <div key={index} className={`flex mb-4 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div
-                className={`rounded-lg px-4 py-2 max-w-xl whitespace-pre-wrap ${msg.sender === 'user' ? 'bg-indigo-600 text-white' : 'bg-neutral-700 text-neutral-200'}`}
+                className={`rounded-lg px-4 py-2 max-w-xl whitespace-pre-wrap ${msg.sender === 'user' ? 'border border-indigo-600 bg-indigo-600/60 text-white' : 'border border-neutral-600 bg-neutral-700/70 text-neutral-200'}`}
               >
                 <ReactMarkdown>{msg.text}</ReactMarkdown>
               </div>

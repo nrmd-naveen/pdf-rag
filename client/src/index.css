@@ -13,12 +13,12 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-    background: #535353;
+    background: #2e2e2e;
     /* Tailwind 'gray-800' */
 }
 
 ::-webkit-scrollbar-thumb {
-    background-color: #323232;
+    background-color: #535353;
     /* Tailwind 'gray-600' */
     border-radius: 6px;
 }
