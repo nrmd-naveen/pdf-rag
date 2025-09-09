@@ -12,8 +12,6 @@ const Dashboard = () => {
   const [allDocuments, setAllDocuments] = useState([]); // Stores all docs from API
   const [filteredDocuments, setFilteredDocuments] = useState([]); // Docs to display
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [rateLimitError, setRateLimitError] = useState('');
   const [toast, setToast] = useState({ message: '', type: '' });
   const [searchType, setSearchType] = useState('semantic');
   const [activeTags, setActiveTags] = useState([]);
@@ -26,13 +24,12 @@ const Dashboard = () => {
 
   const logoutHandler = () => {
     localStorage.removeItem('userInfo');
-    navigate('/login', { state: { message: 'Logged out successfully.', type: 'success' } });
+    navigate('/login', { state: { message: 'Logged out successfully.', type: 'warning' } });
   };
   const navigate = useNavigate();
 
   const fetchAllDocuments = useCallback(async () => {
     setLoading(true);
-    setError('');
     try {
       const config = {
         headers: {
@@ -76,7 +73,6 @@ const Dashboard = () => {
     setSearchType(type); // Set the search type to correctly trigger the filtering effect
     if (type === 'semantic' && query.trim()) {
       setLoading(true);
-      setError('');
       try {
         const config = { headers: { Authorization: `Bearer ${userInfo.token}` } };
         const response = await axios.post(`${BASE_URL}/api/documents/semantic-search`, { query }, config);

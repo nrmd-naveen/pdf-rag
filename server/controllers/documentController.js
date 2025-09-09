@@ -9,7 +9,6 @@ import s3Client from '../config/s3Client.js';
 import genAI from '../config/googleGenerativeAI.js';
 import qdrant from '../config/qdrantClient.js';
 import dotenv from 'dotenv';
-import mongoose from 'mongoose';
 
 dotenv.config();
 
@@ -289,7 +288,7 @@ async function processAndStoreEmbeddings(docId, userId, text) {
 export const generateThumbnail = async (s3Path, docId) => {
   const pdfUrl = `https://nrmd-pdf-store.s3.amazonaws.com/${s3Path}`;
   try {
-    const thumbGenEndpoint = 'https://ba4hcgqlga.execute-api.ap-south-1.amazonaws.com/stage-1/generatePdfThumbnail';
+    const thumbGenEndpoint = process.env.LAMBDA_FUNCTION_ENDPOINT;
     const response = await fetch(thumbGenEndpoint, {
       method: 'POST',
       headers: {
