@@ -5,6 +5,7 @@ import authRoutes from './routes/authRoutes.js';
 import documentRoutes from './routes/documentRoutes.js';
 import { createPayloadIndexes } from './config/qdrantClient.js';
 import connectMongoDB from './config/mongoClient.js';
+import googleRouter from './routes/googleAuthRoutes.js';
 
 // Load environment variables
 dotenv.config();
@@ -16,7 +17,7 @@ app.use(express.json());
 
 app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
-
+app.use('/api/auth', googleRouter)
 const PORT = process.env.PORT || 5001;
 
 // Connect to MongoDB

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
 import { BASE_URL } from '../lib/utils';
 import Toast from '../components/Toast';
+import { useGoogleLogin } from '@react-oauth/google';
 
 const Register = () => {
   const [email, setEmail] = useState('');
@@ -32,6 +33,22 @@ const Register = () => {
     }
   };
 
+  const handleGoogleLoginSuccess = async (tokenResponse) => {
+    try {
+      const { data } = await axios.post(`${BASE_URL}/api/auth/google`, {
+        code: tokenResponse.code,
+      });
+      localStorage.setItem('userInfo', JSON.stringify(data));
+      setToast({ message: 'Google sign-up successful!', type: 'success' });
+      setRegisterSuccess(true);
+    } catch (err) {
+      setToast({ message: err.response?.data?.message || 'Google sign-up failed', type: 'error' });
+      console.error('Google sign-up failed', err);
+    }
+  };
+
+  const googleLogin = useGoogleLogin({ onSuccess: handleGoogleLoginSuccess, flow: 'auth-code' });
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-neutral-900 text-white p-4 sm:p-6 lg:p-8 bg-gradient-to-br from-neutral-900 via-neutral-900 to-neutral-800">
       <div className="max-w-md w-full space-y-8 bg-neutral-800/90 p-8 rounded-[24px] shadow-2xl border border-neutral-700">
@@ -59,6 +76,16 @@ const Register = () => {
             <Link to="/login" className="font-medium text-indigo-400 hover:text-indigo-300">
               Already have an account? Sign in
             </Link>
+          </div>
+          <div className="relative flex py-2 items-center">
+            <div className="flex-grow border-t border-neutral-600"></div>
+            <span className="flex-shrink mx-4 text-neutral-400">Or</span>
+            <div className="flex-grow border-t border-neutral-600"></div>
+          </div>
+          <div>
+            <button onClick={() => googleLogin()} type="button" className="group relative w-full flex justify-center py-3 px-4 border border-neutral-600 text-sm font-bold rounded-lg text-white bg-neutral-800 hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-neutral-800 focus:ring-indigo-500 transition-all duration-300">
+              Sign up with Google
+            </button>
           </div>
         </form>
       </div>
